@@ -12,3 +12,4 @@ wandb/
 *.onnx
 *.engine
 .venv
+datasets

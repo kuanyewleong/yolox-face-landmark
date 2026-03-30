@@ -5,7 +5,7 @@ import torch
 from torch.cuda.amp import GradScaler, autocast
 from yolox_face.engine.evaluator import evaluate_simple
 from yolox_face.losses.yolox_loss import YOLOXLoss
-from yolox_face.utils.checkpoint import save_checkpoint
+from yolox_face.utils.checkpoint import load_checkpoint, save_checkpoint
 from yolox_face.utils.ema import ModelEMA
 from yolox_face.utils.lr_scheduler import LRScheduler
 
@@ -25,7 +25,6 @@ def make_optimizer(model, cfg):
     optimizer.add_param_group({"params": pg1, "weight_decay": train_cfg["weight_decay"]})
     optimizer.add_param_group({"params": pg2})
     return optimizer
-
 
 def train_one_epoch(model, ema, loader, optimizer, scheduler, scaler, loss_fn, device, epoch, total_epochs, amp, phase_name):
     model.train()
@@ -65,11 +64,12 @@ def train_one_epoch(model, ema, loader, optimizer, scheduler, scaler, loss_fn, d
     meters["time"] = time.time() - t0
     return meters
 
-def run_phase(model, train_loader, val_loader, cfg, output_prefix, phase_name, start_epoch=0, checkpoint_path=None):
+
+def build_training_state(model, cfg, phase_name, checkpoint_path=None, resume=False):
     train_cfg = cfg["train"]
-    output_dir = cfg["output_dir"]
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = model.to(device)
+
     loss_fn = YOLOXLoss(
         num_classes=cfg["model"]["num_classes"],
         reg_weight=train_cfg["reg_weight"],
@@ -80,29 +80,82 @@ def run_phase(model, train_loader, val_loader, cfg, output_prefix, phase_name, s
     optimizer = make_optimizer(model, cfg)
     scaler = GradScaler(enabled=train_cfg["amp"])
     total_epochs = train_cfg["epochs_phase1"] if phase_name == "phase1" else train_cfg["epochs_phase2"]
+    ema = ModelEMA(model)
+
+    start_epoch = 0
+    best_loss = 1e9
+    if checkpoint_path:
+        ckpt = load_checkpoint(
+            model,
+            checkpoint_path,
+            optimizer=optimizer if resume else None,
+            scaler=scaler if resume else None,
+            map_location="cpu",
+            strict=False,
+        )
+        if isinstance(ckpt, dict):
+            best_loss = float(ckpt.get("best_loss", best_loss))
+            if resume:
+                start_epoch = int(ckpt.get("epoch", 0))
+                if "ema" in ckpt:
+                    ema.ema.load_state_dict(ckpt["ema"], strict=False)
+
+    total_iters = len_placeholder = None
+    return {
+        "model": model,
+        "device": device,
+        "loss_fn": loss_fn,
+        "optimizer": optimizer,
+        "scaler": scaler,
+        "ema": ema,
+        "total_epochs": total_epochs,
+        "start_epoch": start_epoch,
+        "best_loss": best_loss,
+    }
+
+def run_phase(model, train_loader, val_loader, cfg, output_prefix, phase_name, checkpoint_path=None, resume=False):
+    train_cfg = cfg["train"]
+    output_dir = cfg["output_dir"]
+
+    state = build_training_state(model, cfg, phase_name, checkpoint_path=checkpoint_path, resume=resume)
+    model = state["model"]
+    device = state["device"]
+    loss_fn = state["loss_fn"]
+    optimizer = state["optimizer"]
+    scaler = state["scaler"]
+    ema = state["ema"]
+    total_epochs = state["total_epochs"]
+    start_epoch = state["start_epoch"]
+    best = state["best_loss"]
+
     total_iters = len(train_loader) * total_epochs
     warmup_iters = len(train_loader) * train_cfg["warmup_epochs"]
     scheduler = LRScheduler(optimizer, train_cfg["base_lr"], train_cfg["min_lr_ratio"], total_iters, warmup_iters)
-    ema = ModelEMA(model)
-    best = 1e9
+    scheduler.it = start_epoch * len(train_loader)
 
     for epoch in range(start_epoch, total_epochs):
         train_stats = train_one_epoch(model, ema, train_loader, optimizer, scheduler, scaler, loss_fn, device, epoch, total_epochs, train_cfg["amp"], phase_name)
         print(f"[{phase_name}] train epoch={epoch + 1}: {json.dumps(train_stats, indent=2)}")
+
         if val_loader is not None:
             eval_model = ema.ema.to(device)
             val_stats = evaluate_simple(eval_model, val_loader, device, loss_fn)
             print(f"[{phase_name}] val epoch={epoch + 1}: {json.dumps(val_stats, indent=2)}")
+
             ckpt = {
                 "model": eval_model.state_dict(),
+                "ema": ema.ema.state_dict(),
                 "optimizer": optimizer.state_dict(),
                 "scaler": scaler.state_dict(),
                 "epoch": epoch + 1,
+                "best_loss": min(best, val_stats["loss"]),
                 "cfg": cfg,
+                "phase": phase_name,
             }
             latest_path = os.path.join(output_dir, f"{output_prefix}_latest.pth")
             save_checkpoint(ckpt, latest_path)
             if val_stats["loss"] < best:
                 best = val_stats["loss"]
                 save_checkpoint(ckpt, os.path.join(output_dir, f"{output_prefix}_best.pth"))
+
     return ema.ema.cpu()

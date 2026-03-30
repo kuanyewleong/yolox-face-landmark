@@ -1,4 +1,23 @@
 import torch
+import torch.nn as nn
+
+
+class SiLU(nn.Module):
+    def forward(self, x):
+        return x * torch.sigmoid(x)
+
+
+class BaseConv(nn.Module):
+    def __init__(self, in_channels, out_channels, ksize, stride, groups=1, act=True):
+        super().__init__()
+        pad = (ksize - 1) // 2
+        self.conv = nn.Conv2d(in_channels, out_channels, ksize, stride, pad, groups=groups, bias=False)
+        self.bn = nn.BatchNorm2d(out_channels)
+        self.act = SiLU() if act else nn.Identity()
+
+    def forward(self, x):
+        return self.act(self.bn(self.conv(x)))
+
 class DWConv(nn.Module):
     def __init__(self, in_channels, out_channels, ksize, stride, act=True):
         super().__init__()
@@ -21,7 +40,6 @@ class Bottleneck(nn.Module):
     def forward(self, x):
         y = self.conv2(self.conv1(x))
         return y + x if self.use_add else y
-
 
 class CSPLayer(nn.Module):
     def __init__(self, in_channels, out_channels, n=1, shortcut=True, expansion=0.5, depthwise=False):

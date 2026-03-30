@@ -26,8 +26,8 @@ CFG = {
         "mixed_wider_ratio": 0.5,
     },
     "data": {
-        "wider_root": "/path/to/WIDER_FACE",
-        "wflw_root": "/path/to/WFLW",
+        "wider_root": "datasets/wider_face",
+        "wflw_root": "datasets/WFLW",
     },
     "output_dir": "./outputs",
 }

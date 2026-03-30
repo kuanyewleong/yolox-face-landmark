@@ -8,6 +8,7 @@ This repo trains a YOLOX-L-based face detector with an additional 5-point landma
 - Phase 2: multi-task fine-tune on mixed WIDER FACE + WFLW
 
 ## Repository tree
+```
 yolox-face-landmark/
 ├── README.md
 ├── requirements.txt
@@ -58,6 +59,7 @@ yolox-face-landmark/
     ├── train_phase1.sh
     ├── train_phase2.sh
     └── export_trt.sh
+```
 
 ## Datasets
 

@@ -1,0 +1,33 @@
+CFG = {
+    "model": {
+        "depth": 1.0,
+        "width": 1.0,
+        "num_classes": 1,
+        "depthwise": False,
+    },
+    "train": {
+        "input_size": 640,
+        "batch_size": 16,
+        "workers": 8,
+        "epochs_phase1": 120,
+        "epochs_phase2": 40,
+        "base_lr": 0.001,
+        "min_lr_ratio": 0.05,
+        "warmup_epochs": 3,
+        "weight_decay": 5e-4,
+        "momentum": 0.9,
+        "seed": 42,
+        "amp": True,
+        "sync_bn": False,
+        "reg_weight": 5.0,
+        "obj_weight": 1.0,
+        "cls_weight": 1.0,
+        "lmk_weight": 5.0,
+        "mixed_wider_ratio": 0.5,
+    },
+    "data": {
+        "wider_root": "/path/to/WIDER_FACE",
+        "wflw_root": "/path/to/WFLW",
+    },
+    "output_dir": "./outputs",
+}

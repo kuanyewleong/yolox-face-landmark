@@ -1,0 +1,2 @@
+python tools/export_onnx.py --config configs/yolox_l_face_landmark.py --checkpoint outputs/final_model.pth --output outputs/model.onnx --dynamic
+python tools/build_trt.py --onnx outputs/model.onnx --engine outputs/model_fp16.engine --fp16

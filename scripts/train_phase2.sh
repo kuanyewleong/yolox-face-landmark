@@ -1,0 +1,1 @@
+python tools/train.py --config configs/yolox_l_face_landmark.py --phase phase2 --checkpoint outputs/phase1_wider_best.pth

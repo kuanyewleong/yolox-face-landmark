@@ -2,7 +2,7 @@ import json
 import os
 import time
 import torch
-from torch.cuda.amp import GradScaler, autocast
+from torch.amp import GradScaler, autocast
 from yolox_face.engine.evaluator import evaluate_simple
 from yolox_face.losses.yolox_loss import YOLOXLoss
 from yolox_face.utils.checkpoint import load_checkpoint, save_checkpoint
@@ -36,7 +36,7 @@ def train_one_epoch(model, ema, loader, optimizer, scheduler, scaler, loss_fn, d
         images = batch["images"].to(device, non_blocking=True)
         batch["images"] = images
         optimizer.zero_grad(set_to_none=True)
-        with autocast(enabled=amp):
+        with autocast("cuda", enabled=(amp and device.type == "cuda")):
             outputs = model(images)
             losses = loss_fn(outputs, batch)
             loss = losses["loss"]
@@ -78,7 +78,8 @@ def build_training_state(model, cfg, phase_name, checkpoint_path=None, resume=Fa
         lmk_weight=train_cfg["lmk_weight"],
     )
     optimizer = make_optimizer(model, cfg)
-    scaler = GradScaler(enabled=train_cfg["amp"])
+    use_amp = train_cfg["amp"] and device.type == "cuda"
+    scaler = GradScaler("cuda", enabled=use_amp)
     total_epochs = train_cfg["epochs_phase1"] if phase_name == "phase1" else train_cfg["epochs_phase2"]
     ema = ModelEMA(model)
 

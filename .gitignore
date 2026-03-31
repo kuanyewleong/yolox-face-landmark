@@ -13,3 +13,5 @@ wandb/
 *.engine
 .venv
 datasets
+logs
+*.slurm

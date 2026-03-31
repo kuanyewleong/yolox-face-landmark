@@ -17,8 +17,10 @@ class WFLWDataset(Dataset):
 
     @staticmethod
     def _wflw98_to_5pts(pts98: np.ndarray) -> np.ndarray:
-        left_eye = pts98[60:68].mean(axis=0)
-        right_eye = pts98[68:76].mean(axis=0)
+        # left_eye = pts98[60:68].mean(axis=0)
+        # right_eye = pts98[68:76].mean(axis=0)
+        left_eye = pts98[96]
+        right_eye = pts98[97]
         nose = pts98[54]
         mouth_left = pts98[76]
         mouth_right = pts98[82]

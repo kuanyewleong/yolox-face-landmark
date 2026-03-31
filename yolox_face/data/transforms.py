@@ -1,4 +1,7 @@
 import cv2
+import numpy as np
+import random
+
 
 class FaceTrainTransform:
     def __init__(self, input_size=(640, 640), hsv_prob=1.0, flip_prob=0.5):

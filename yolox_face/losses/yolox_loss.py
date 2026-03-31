@@ -2,7 +2,9 @@ from typing import Dict, List
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.amp import autocast
 from yolox_face.utils.box_ops import bbox_iou, cxcywh_to_xyxy, generalized_iou
+
 
 class YOLOXLoss(nn.Module):
     def __init__(self, num_classes=1, strides=(8, 16, 32), center_radius=2.5,
@@ -52,30 +54,58 @@ class YOLOXLoss(nn.Module):
         return {"cls": cls_pred, "obj": obj_pred, "boxes": pred_boxes, "lmk": pred_lmk, "grids": grids, "strides": strides}
 
     def _get_in_boxes_info(self, gt_boxes, expanded_strides, xys):
+        x_centers = xys[:, 0][None, :]
+        y_centers = xys[:, 1][None, :]
+        gt_l, gt_t, gt_r, gt_b = gt_boxes[:, 0:1], gt_boxes[:, 1:2], gt_boxes[:, 2:3], gt_boxes[:, 3:4]
+        b_l = x_centers - gt_l
+        b_r = gt_r - x_centers
+        b_t = y_centers - gt_t
+        b_b = gt_b - y_centers
+        is_in_boxes = torch.stack([b_l, b_r, b_t, b_b], dim=-1).min(dim=-1).values > 0.0
+        is_in_boxes_all = is_in_boxes.sum(dim=0) > 0
+        gt_cx = (gt_l + gt_r) * 0.5
+        gt_cy = (gt_t + gt_b) * 0.5
+        radius = self.center_radius * expanded_strides.squeeze(1)[None, :]
+        c_l = x_centers - (gt_cx - radius)
+        c_r = (gt_cx + radius) - x_centers
+        c_t = y_centers - (gt_cy - radius)
+        c_b = (gt_cy + radius) - y_centers
+        is_in_centers = torch.stack([c_l, c_r, c_t, c_b], dim=-1).min(dim=-1).values > 0.0
+        is_in_centers_all = is_in_centers.sum(dim=0) > 0
         is_in_boxes_anchor = is_in_boxes_all | is_in_centers_all
         is_in_boxes_and_center = is_in_boxes[:, is_in_boxes_anchor] & is_in_centers[:, is_in_boxes_anchor]
         return is_in_boxes_anchor, is_in_boxes_and_center
 
     def _dynamic_k_matching(self, cost, pair_wise_ious, gt_classes, num_gt, fg_mask):
         matching_matrix = torch.zeros_like(cost, dtype=torch.uint8)
+
         n_candidate_k = min(10, pair_wise_ious.size(1))
         topk_ious, _ = torch.topk(pair_wise_ious, n_candidate_k, dim=1)
         dynamic_ks = torch.clamp(topk_ious.sum(1).int(), min=1)
+
         for gt_idx in range(num_gt):
             _, pos_idx = torch.topk(cost[gt_idx], k=dynamic_ks[gt_idx].item(), largest=False)
             matching_matrix[gt_idx, pos_idx] = 1
+
         anchor_matching_gt = matching_matrix.sum(0)
         if (anchor_matching_gt > 1).sum() > 0:
-            _, cost_argmin = torch.min(cost[:, anchor_matching_gt > 1], dim=0)
-            matching_matrix[:, anchor_matching_gt > 1] *= 0
-            matching_matrix[cost_argmin, anchor_matching_gt > 1] = 1
+            multi_match_mask = anchor_matching_gt > 1
+            _, cost_argmin = torch.min(cost[:, multi_match_mask], dim=0)
+            matching_matrix[:, multi_match_mask] = 0
+            matching_matrix[cost_argmin, multi_match_mask] = 1
+
         fg_mask_inboxes = matching_matrix.sum(0) > 0
-        num_fg = fg_mask_inboxes.sum().item()
-        fg_mask[fg_mask.clone()] = fg_mask_inboxes
+        num_fg = int(fg_mask_inboxes.sum().item())
+
+        # build a fresh full-size foreground mask instead of modifying fg_mask in-place
+        new_fg_mask = torch.zeros_like(fg_mask, dtype=torch.bool)
+        new_fg_mask[fg_mask] = fg_mask_inboxes
+
         matched_gt_inds = matching_matrix[:, fg_mask_inboxes].argmax(0)
         gt_matched_classes = gt_classes[matched_gt_inds]
         pred_ious_this_matching = (matching_matrix * pair_wise_ious).sum(0)[fg_mask_inboxes]
-        return num_fg, gt_matched_classes, pred_ious_this_matching, matched_gt_inds
+
+        return num_fg, gt_matched_classes, pred_ious_this_matching, matched_gt_inds, new_fg_mask
 
     def get_assignments(self, pred_boxes, pred_cls, pred_obj, gt_boxes, gt_classes, strides, grids):
         num_gt = gt_boxes.shape[0]
@@ -95,11 +125,13 @@ class YOLOXLoss(nn.Module):
         pair_wise_ious = bbox_iou(gt_boxes, valid_pred_boxes)
         gt_cls_per_image = F.one_hot(gt_classes.to(torch.int64), self.num_classes).float().unsqueeze(1).repeat(1, valid_pred_boxes.shape[0], 1)
         pair_wise_ious_loss = -torch.log(pair_wise_ious + 1e-8)
-        with torch.cuda.amp.autocast(enabled=False):
+        with autocast("cuda", enabled=False):
             cls_preds_ = (valid_pred_cls.float().sigmoid_() * valid_pred_obj.float().sigmoid_()).sqrt()
             pair_wise_cls_loss = F.binary_cross_entropy(cls_preds_.unsqueeze(0).repeat(num_gt, 1, 1), gt_cls_per_image, reduction="none").sum(-1)
         cost = pair_wise_cls_loss + 3.0 * pair_wise_ious_loss + 100000.0 * (~is_in_boxes_and_center)
-        _, gt_matched_classes, pred_ious_this_matching, matched_gt_inds = self._dynamic_k_matching(cost, pair_wise_ious, gt_classes, num_gt, fg_mask)
+        num_fg, gt_matched_classes, pred_ious_this_matching, matched_gt_inds, fg_mask = self._dynamic_k_matching(
+            cost, pair_wise_ious, gt_classes, num_gt, fg_mask
+        )
         return gt_matched_classes, pred_ious_this_matching, fg_mask, matched_gt_inds
 
     def forward(self, outputs, batch):

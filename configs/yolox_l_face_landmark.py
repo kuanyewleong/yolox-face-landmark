@@ -27,7 +27,7 @@ CFG = {
     },
     "data": {
         "wider_root": "datasets/wider_face",
-        "wflw_root": "datasets/WFLW",
+        "wflw_root": "datasets/WFLW_ROOT",
     },
     "output_dir": "./outputs",
 }

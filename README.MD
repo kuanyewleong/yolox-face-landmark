@@ -88,26 +88,35 @@ WFLW_ROOT/
 ```
 
 ## Intall
+```
 pip install -r requirements.txt
 pip install -e .
+```
 
 ## Train Phase-1
+```
 python tools/train.py --config configs/yolox_l_face_landmark.py --phase phase1
+```
 
 ## Train Phase-2
+```
 python tools/train.py --config configs/yolox_l_face_landmark.py --phase phase2 --checkpoint outputs/phase1_wider_best.pth
+```
 
 ## Export ONNX
+```
 python tools/export_onnx.py \
   --config configs/yolox_l_face_landmark.py \
   --checkpoint outputs/final_model.pth \
   --output outputs/model.onnx \
   --dynamic
+```
 
 ## Build TensorRT engine
+```
 python tools/build_trt.py \
   --onnx outputs/model.onnx \
   --engine outputs/model_fp16.engine \
   --fp16
-
+```
 

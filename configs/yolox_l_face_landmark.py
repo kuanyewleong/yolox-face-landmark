@@ -25,6 +25,9 @@ CFG = {
         "lmk_weight": 5.0,
         "mixed_wider_ratio": 0.5,
     },
+    "val": {
+        "workers": 2,
+    },
     "data": {
         "wider_root": "datasets/wider_face",
         "wflw_root": "datasets/WFLW_ROOT",

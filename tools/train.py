@@ -56,7 +56,7 @@ def build_loaders(cfg, phase):
             seed=cfg["train"]["seed"],
         )
         train_loader = make_loader(mixed_train, cfg["train"]["batch_size"], cfg["train"]["workers"], shuffle=False, sampler=sampler)
-        val_loader = make_loader(wflw_val, cfg["train"]["batch_size"], cfg["train"]["workers"], shuffle=False)
+        val_loader = make_loader(wflw_val, cfg["train"]["batch_size"], cfg["val"]["workers"], shuffle=False)
         return train_loader, val_loader
 
     raise ValueError(f"Unsupported phase: {phase}")

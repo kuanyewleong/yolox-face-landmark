@@ -138,7 +138,7 @@ def run_phase(model, train_loader, val_loader, cfg, output_prefix, phase_name, c
         train_stats = train_one_epoch(model, ema, train_loader, optimizer, scheduler, scaler, loss_fn, device, epoch, total_epochs, train_cfg["amp"], phase_name)
         print(f"[{phase_name}] train epoch={epoch + 1}: {json.dumps(train_stats, indent=2)}")
 
-        if val_loader is not None:
+        if val_loader is not None and ((epoch + 1) % 5 == 0 or epoch + 1 == total_epochs):
             eval_model = ema.ema.to(device)
             val_stats = evaluate_simple(eval_model, val_loader, device, loss_fn)
             print(f"[{phase_name}] val epoch={epoch + 1}: {json.dumps(val_stats, indent=2)}")
